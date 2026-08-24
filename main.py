@@ -64,7 +64,21 @@ def main(page: ft.Page):
     page.bgcolor = "#12121a"
     page.padding = 0
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
+    try:
+        build_game(page)
+    except Exception as ex:
+        import traceback
+        page.controls.clear()
+        page.scroll = ft.ScrollMode.AUTO
+        page.add(
+            ft.Text("Ошибка запуска игры:", size=18, weight=ft.FontWeight.BOLD, color="#ff5252"),
+            ft.Text(str(ex), size=14, color="white", selectable=True),
+            ft.Text(traceback.format_exc(), size=11, color="#9e9e9e", selectable=True),
+        )
+        page.update()
 
+
+def build_game(page: ft.Page):
     state = {}
 
     def load_state():
@@ -198,18 +212,18 @@ def main(page: ft.Page):
         gained = power * CRIT_MULT if is_crit else power
         add_points(gained)
 
-        coin_button.scale = 0.9
+        coin_button.bgcolor = "#33261e" if is_crit else "#262633"
         page.update()
 
-        def restore_scale():
+        def restore_color():
             time.sleep(0.08)
             try:
-                coin_button.scale = 1
+                coin_button.bgcolor = "#1e1e2a"
                 page.update()
             except Exception:
                 pass
 
-        threading.Thread(target=restore_scale, daemon=True).start()
+        threading.Thread(target=restore_color, daemon=True).start()
 
         flash_floating(f"+{int(gained)}" + (" КРИТ!" if is_crit else ""))
         check_quests_silently()
@@ -225,8 +239,6 @@ def main(page: ft.Page):
         alignment=ft.alignment.center,
         on_click=on_click_coin,
         ink=True,
-        animate_scale=ft.animation.Animation(80, "easeOut"),
-        scale=1,
     )
 
     # ---------- Магазин ----------
