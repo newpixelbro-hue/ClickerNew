@@ -43,4 +43,8 @@ jobs:
         run: |
           yes | flet build apk --python-version 3.12 --verbose
 
-      - name: Upload AP
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Clicker-APK
+          path: build/apk/*.apk
