@@ -80,6 +80,35 @@ LEAGUES = [
     {"name": "Алмаз", "min": 300000, "offline_mult": 1.5},
 ]
 
+# Кейсы: у каждого свой список наград с весами (шанс = вес / сумма весов)
+CASES = [
+    {"id": "case_starter", "name": "Стартовый кейс", "emoji": "🧰", "cost": 150, "rewards": [
+        {"type": "points", "amount": 80, "weight": 50, "label": "+80 💰"},
+        {"type": "points", "amount": 250, "weight": 25, "label": "+250 💰"},
+        {"type": "energy_full", "weight": 25, "label": "Полная энергия ⚡"},
+    ]},
+    {"id": "case_common", "name": "Обычный кейс", "emoji": "📦", "cost": 500, "rewards": [
+        {"type": "points", "amount": 300, "weight": 40, "label": "+300 💰"},
+        {"type": "points", "amount": 900, "weight": 20, "label": "+900 💰"},
+        {"type": "energy_full", "weight": 25, "label": "Полная энергия ⚡"},
+        {"type": "booster", "seconds": 120, "weight": 15, "label": "Бустер x2 на 2 мин ⚡"},
+    ]},
+    {"id": "case_rare", "name": "Редкий кейс", "emoji": "🎁", "cost": 2500, "rewards": [
+        {"type": "points", "amount": 1800, "weight": 35, "label": "+1800 💰"},
+        {"type": "points", "amount": 5000, "weight": 15, "label": "+5000 💰"},
+        {"type": "energy_full", "weight": 20, "label": "Полная энергия ⚡"},
+        {"type": "booster", "seconds": 300, "weight": 25, "label": "Бустер x2 на 5 мин ⚡"},
+        {"type": "prestige_points", "amount": 1, "weight": 5, "label": "+1 очко перерождения ✨"},
+    ]},
+    {"id": "case_epic", "name": "Эпический кейс", "emoji": "💠", "cost": 10000, "rewards": [
+        {"type": "points", "amount": 7000, "weight": 35, "label": "+7000 💰"},
+        {"type": "points", "amount": 18000, "weight": 15, "label": "+18000 💰"},
+        {"type": "booster", "seconds": 600, "weight": 30, "label": "Бустер x2 на 10 мин ⚡"},
+        {"type": "prestige_points", "amount": 2, "weight": 15, "label": "+2 очка перерождения ✨"},
+        {"type": "prestige_points", "amount": 5, "weight": 5, "label": "+5 очков перерождения ✨🌟"},
+    ]},
+]
+
 CRIT_CHANCE = 0.1
 CRIT_MULT = 5
 PRESTIGE_THRESHOLD = 20000
@@ -156,11 +185,12 @@ def build_game(page: ft.Page):
     def upgrade_cost(base_cost, level):
         return int(base_cost * (1.15 ** level))
 
-    def active_multiplier():
-        mult = 1 + state["prestige_points"] * PRESTIGE_BONUS_PER_POINT
+    # Все бонусы (престиж, скин, бустер) складываются, а не перемножаются —
+    # иначе они накручивают друг друга и экономика идёт вразнос.
+    def booster_bonus_fraction():
         if time.time() < state.get("booster_until", 0):
-            mult *= BOOSTER_MULT
-        return mult
+            return BOOSTER_MULT - 1  # x2 -> +100%
+        return 0
 
     def base_click_power():
         power = 1
@@ -178,15 +208,21 @@ def build_game(page: ft.Page):
             return skin.get("bonus_value", 0)
         return 0
 
+    def click_bonus_fraction():
+        return state["prestige_points"] * PRESTIGE_BONUS_PER_POINT + skin_bonus("click_power") + booster_bonus_fraction()
+
+    def passive_bonus_fraction():
+        return state["prestige_points"] * PRESTIGE_BONUS_PER_POINT + skin_bonus("passive") + booster_bonus_fraction()
+
     def total_click_power():
-        return base_click_power() * active_multiplier() * (1 + skin_bonus("click_power"))
+        return base_click_power() * (1 + click_bonus_fraction())
 
     def total_passive_income():
         income = 0
         for p in PASSIVE:
             lvl = state["owned_passive"].get(p["id"], 0)
             income += lvl * p["income"]
-        return income * active_multiplier() * (1 + skin_bonus("passive"))
+        return income * (1 + passive_bonus_fraction())
 
     def league_index():
         idx = 0
@@ -266,12 +302,12 @@ def build_game(page: ft.Page):
     combo_text = ft.Text("", size=12, color="#ff8a65")
 
     COMBO_WINDOW = 1.2   # секунд между кликами, чтобы комбо не сбрасывалось
-    COMBO_STEP = 0.02    # +2% за каждый клик в комбо
-    COMBO_CAP = 25       # максимум +50%
+    COMBO_STEP = 0.015   # +1.5% за каждый клик в комбо
+    COMBO_CAP = 20        # максимум +30%
     combo_state = {"count": 0, "last_time": 0}
 
-    def combo_multiplier():
-        return 1 + min(combo_state["count"], COMBO_CAP) * COMBO_STEP
+    def combo_fraction():
+        return min(combo_state["count"], COMBO_CAP) * COMBO_STEP
 
     def current_skin_emoji():
         skin = next((s for s in SKINS if s["id"] == state["selected_skin"]), SKINS[0])
@@ -334,14 +370,13 @@ def build_game(page: ft.Page):
             combo_state["count"] = 1
         combo_state["last_time"] = now
 
-        power = total_click_power()
+        power = total_click_power() * (1 + combo_fraction())
         is_crit = random.random() < (CRIT_CHANCE + skin_bonus("crit_chance"))
         gained = power * CRIT_MULT if is_crit else power
-        gained *= combo_multiplier()
         add_points(gained)
 
         if combo_state["count"] > 1:
-            combo_text.value = f"🔥 Комбо x{min(combo_state['count'], COMBO_CAP)} (+{int((combo_multiplier() - 1) * 100)}%)"
+            combo_text.value = f"🔥 Комбо x{min(combo_state['count'], COMBO_CAP)} (+{int(combo_fraction() * 100)}%)"
         else:
             combo_text.value = ""
 
@@ -641,6 +676,63 @@ def build_game(page: ft.Page):
     render_quests()
     render_skins()
 
+    # ---------- Кейсы ----------
+    cases_column = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO)
+
+    def weighted_choice(rewards):
+        total_w = sum(r["weight"] for r in rewards)
+        roll = random.uniform(0, total_w)
+        upto = 0
+        for reward in rewards:
+            upto += reward["weight"]
+            if roll <= upto:
+                return reward
+        return rewards[-1]
+
+    def apply_case_reward(reward):
+        if reward["type"] == "points":
+            add_points(reward["amount"])
+        elif reward["type"] == "energy_full":
+            state["energy"] = state["energy_max"]
+        elif reward["type"] == "booster":
+            state["booster_until"] = max(state.get("booster_until", 0), time.time()) + reward["seconds"]
+        elif reward["type"] == "prestige_points":
+            state["prestige_points"] += reward["amount"]
+
+    def open_case(case):
+        def handler(e):
+            if state["points"] < case["cost"]:
+                show_info_dialog("Кейсы", "Не хватает очков на этот кейс")
+                return
+            state["points"] -= case["cost"]
+            reward = weighted_choice(case["rewards"])
+            apply_case_reward(reward)
+            save_state()
+            render_cases()
+            refresh_top()
+            show_info_dialog(f"{case['emoji']} {case['name']}", f"Выпало: {reward['label']}")
+        return handler
+
+    def render_cases():
+        cases_column.controls.clear()
+        cases_column.controls.append(ft.Text("Кейсы", size=16, weight=ft.FontWeight.BOLD, color="white"))
+        for c in CASES:
+            cases_column.controls.append(
+                ft.Container(
+                    padding=10, border_radius=10, bgcolor="#1e1e2a",
+                    content=ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        controls=[
+                            ft.Row(controls=[ft.Text(c["emoji"], size=26), ft.Text(c["name"], size=14, color="white")]),
+                            ft.ElevatedButton(f"{c['cost']} 💰", on_click=open_case(c), bgcolor="#4fc3f7", color="#12121a"),
+                        ],
+                    ),
+                )
+            )
+        page.update()
+
+    render_cases()
+
     # ---------- Вкладки ----------
     tabs_content = ft.Container(content=shop_column, height=260, width=320, padding=10)
 
@@ -659,6 +751,11 @@ def build_game(page: ft.Page):
         render_skins()
         page.update()
 
+    def show_cases(e=None):
+        tabs_content.content = cases_column
+        render_cases()
+        page.update()
+
     quests_tab_btn = ft.TextButton("📋 Задания", on_click=show_quests)
     tab_buttons = ft.Row(
         alignment=ft.MainAxisAlignment.CENTER,
@@ -666,6 +763,7 @@ def build_game(page: ft.Page):
             ft.TextButton("🛒 Магазин", on_click=show_shop),
             quests_tab_btn,
             ft.TextButton("🎨 Скины", on_click=show_skins),
+            ft.TextButton("🎁 Кейсы", on_click=show_cases),
         ],
     )
 
