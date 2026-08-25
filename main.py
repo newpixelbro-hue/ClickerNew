@@ -20,13 +20,34 @@ PASSIVE = [
     {"id": "p3", "name": "Космодобыча", "emoji": "🚀", "base_cost": 3000, "income": 150},
 ]
 
-QUESTS = [
-    {"id": "q1", "desc": "Сделай 50 кликов", "type": "clicks", "target": 50, "reward": 100},
-    {"id": "q2", "desc": "Сделай 300 кликов", "type": "clicks", "target": 300, "reward": 500},
-    {"id": "q3", "desc": "Заработай 1000 очков (всего)", "type": "lifetime_points", "target": 1000, "reward": 300},
-    {"id": "q4", "desc": "Заработай 10000 очков (всего)", "type": "lifetime_points", "target": 10000, "reward": 2000},
-    {"id": "q5", "desc": "Купи 5 улучшений", "type": "upgrades_bought", "target": 5, "reward": 400},
+# Квесты сбрасываются и растут по сложности после каждого перерождения (используют "since_prestige_*" счётчики)
+QUESTS_BASE = [
+    {"id": "q1", "desc": "Сделай {t} кликов", "type": "clicks_run", "target": 50, "reward": 100},
+    {"id": "q2", "desc": "Сделай {t} кликов", "type": "clicks_run", "target": 300, "reward": 500},
+    {"id": "q3", "desc": "Сделай {t} кликов", "type": "clicks_run", "target": 800, "reward": 1200},
+    {"id": "q4", "desc": "Заработай {t} очков за этот забег", "type": "points_run", "target": 1000, "reward": 300},
+    {"id": "q5", "desc": "Заработай {t} очков за этот забег", "type": "points_run", "target": 5000, "reward": 1200},
+    {"id": "q6", "desc": "Заработай {t} очков за этот забег", "type": "points_run", "target": 15000, "reward": 3000},
+    {"id": "q7", "desc": "Купи {t} улучшений за этот забег", "type": "upgrades_run", "target": 5, "reward": 400},
+    {"id": "q8", "desc": "Купи {t} улучшений за этот забег", "type": "upgrades_run", "target": 12, "reward": 1500},
 ]
+
+
+def build_quests(prestige_count):
+    diff_mult = 1 + prestige_count * 0.6
+    reward_mult = 1 + prestige_count * 0.5
+    quests = []
+    for q in QUESTS_BASE:
+        target = max(1, int(round(q["target"] * diff_mult)))
+        reward = max(1, int(round(q["reward"] * reward_mult)))
+        quests.append({
+            "id": q["id"],
+            "desc": q["desc"].format(t=target),
+            "type": q["type"],
+            "target": target,
+            "reward": reward,
+        })
+    return quests
 
 ACHIEVEMENTS = [
     {"id": "a1", "desc": "🏆 1000 кликов за всю игру", "type": "clicks", "target": 1000, "reward": 1000},
@@ -62,7 +83,10 @@ def default_state():
         "points": 0,
         "lifetime_points": 0,
         "since_prestige_points": 0,
+        "since_prestige_clicks": 0,
+        "since_prestige_upgrades": 0,
         "prestige_points": 0,
+        "prestige_count": 0,
         "total_clicks": 0,
         "upgrades_bought_count": 0,
         "energy": 100,
@@ -158,6 +182,12 @@ def build_game(page: ft.Page):
         state["points"] += amount
         state["lifetime_points"] += amount
         state["since_prestige_points"] += amount
+
+    def add_run_click():
+        state["since_prestige_clicks"] += 1
+
+    def add_run_upgrade():
+        state["since_prestige_upgrades"] += 1
 
     # ---------- офлайн-прогресс ----------
     offline_gain = 0
@@ -265,6 +295,7 @@ def build_game(page: ft.Page):
             return
         state["energy"] -= 1
         state["total_clicks"] += 1
+        add_run_click()
 
         power = total_click_power()
         is_crit = random.random() < CRIT_CHANCE
@@ -308,6 +339,7 @@ def build_game(page: ft.Page):
                 state["points"] -= cost
                 state["owned_upgrades"][u["id"]] = lvl + 1
                 state["upgrades_bought_count"] += 1
+                add_run_upgrade()
                 save_state()
                 render_shop()
                 refresh_top()
@@ -321,6 +353,7 @@ def build_game(page: ft.Page):
                 state["points"] -= cost
                 state["owned_passive"][p["id"]] = lvl + 1
                 state["upgrades_bought_count"] += 1
+                add_run_upgrade()
                 save_state()
                 render_shop()
                 refresh_top()
@@ -331,15 +364,20 @@ def build_game(page: ft.Page):
             return
         gained_pp = int(state["since_prestige_points"] // PRESTIGE_THRESHOLD)
         state["prestige_points"] += gained_pp
+        state["prestige_count"] += 1
         state["since_prestige_points"] = 0
+        state["since_prestige_clicks"] = 0
+        state["since_prestige_upgrades"] = 0
         state["points"] = 0
         state["owned_upgrades"] = {}
         state["owned_passive"] = {}
         state["energy"] = state["energy_max"]
+        state["claimed_quests"] = []
         save_state()
         render_shop()
+        render_quests()
         refresh_top()
-        show_info_dialog("Перерождение!", f"Получено очков перерождения: +{gained_pp}\nТекущий бонус: +{int(state['prestige_points'] * PRESTIGE_BONUS_PER_POINT * 100)}% к доходу")
+        show_info_dialog("Перерождение!", f"Получено очков перерождения: +{gained_pp}\nТекущий бонус: +{int(state['prestige_points'] * PRESTIGE_BONUS_PER_POINT * 100)}% к доходу\nЗадания снова открыты (стали сложнее)")
 
     shop_column = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO)
 
@@ -399,12 +437,20 @@ def build_game(page: ft.Page):
     quests_column = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO)
 
     def progress_value(entry):
+        # достижения — считают за всю игру (никогда не сбрасываются)
         if entry["type"] == "clicks":
             return state["total_clicks"]
         if entry["type"] == "lifetime_points":
             return state["lifetime_points"]
         if entry["type"] == "upgrades_bought":
             return state["upgrades_bought_count"]
+        # квесты — считают только с последнего перерождения (сбрасываются и растут)
+        if entry["type"] == "clicks_run":
+            return state["since_prestige_clicks"]
+        if entry["type"] == "points_run":
+            return state["since_prestige_points"]
+        if entry["type"] == "upgrades_run":
+            return state["since_prestige_upgrades"]
         return 0
 
     def claim_entry(entry, claimed_list_key, on_done):
@@ -445,18 +491,18 @@ def build_game(page: ft.Page):
 
     def render_quests():
         quests_column.controls.clear()
-        quests_column.controls.append(ft.Text("Задания", size=16, weight=ft.FontWeight.BOLD, color="white"))
-        for q in QUESTS:
+        quests_column.controls.append(ft.Text(f"Задания (забег #{state['prestige_count'] + 1})", size=16, weight=ft.FontWeight.BOLD, color="white"))
+        for q in build_quests(state["prestige_count"]):
             quests_column.controls.append(entry_row(q, "claimed_quests", render_quests))
         quests_column.controls.append(ft.Divider(color="#2a2a35"))
-        quests_column.controls.append(ft.Text("Достижения", size=16, weight=ft.FontWeight.BOLD, color="white"))
+        quests_column.controls.append(ft.Text("Достижения (навсегда)", size=16, weight=ft.FontWeight.BOLD, color="white"))
         for a in ACHIEVEMENTS:
             quests_column.controls.append(entry_row(a, "claimed_achievements", render_quests))
         page.update()
 
     def unclaimed_ready_count():
         count = 0
-        for q in QUESTS:
+        for q in build_quests(state["prestige_count"]):
             if q["id"] not in state["claimed_quests"] and progress_value(q) >= q["target"]:
                 count += 1
         for a in ACHIEVEMENTS:
@@ -514,4 +560,156 @@ def build_game(page: ft.Page):
     # ---------- Вкладки ----------
     tabs_content = ft.Container(content=shop_column, height=260, width=320, padding=10)
 
-    def sho
+    def show_shop(e=None):
+        tabs_content.content = shop_column
+        render_shop()
+        page.update()
+
+    def show_quests(e=None):
+        tabs_content.content = quests_column
+        render_quests()
+        page.update()
+
+    def show_skins(e=None):
+        tabs_content.content = skins_column
+        render_skins()
+        page.update()
+
+    quests_tab_btn = ft.TextButton("📋 Задания", on_click=show_quests)
+    tab_buttons = ft.Row(
+        alignment=ft.MainAxisAlignment.CENTER,
+        controls=[
+            ft.TextButton("🛒 Магазин", on_click=show_shop),
+            quests_tab_btn,
+            ft.TextButton("🎨 Скины", on_click=show_skins),
+        ],
+    )
+
+    # ---------- Сброс прогресса ----------
+    def confirm_reset(e):
+        def do_reset(e2):
+            state.clear()
+            state.update(default_state())
+            save_state()
+            coin_text.value = current_skin_emoji()
+            render_shop()
+            render_quests()
+            render_skins()
+            refresh_top()
+            page.dialog.open = False
+            page.update()
+
+        def cancel(e2):
+            page.dialog.open = False
+            page.update()
+
+        page.dialog = ft.AlertDialog(
+            title=ft.Text("Сбросить прогресс?"),
+            content=ft.Text("Весь прогресс будет удалён без возможности восстановить."),
+            actions=[ft.TextButton("Отмена", on_click=cancel), ft.TextButton("Сбросить", on_click=do_reset)],
+        )
+        page.dialog.open = True
+        page.update()
+
+    settings_btn = ft.IconButton(icon=ft.icons.SETTINGS, icon_color="#666", on_click=confirm_reset)
+
+    # ---------- Автотик ----------
+    def tick_loop():
+        while True:
+            time.sleep(1)
+            now = time.time()
+            elapsed = now - state.get("last_tick", now)
+            state["energy"] = min(state["energy_max"], state["energy"] + elapsed / 3)
+            add_points((total_passive_income() / 3600) * elapsed)
+            state["last_tick"] = now
+            try:
+                refresh_top()
+            except Exception:
+                break
+
+    threading.Thread(target=tick_loop, daemon=True).start()
+
+    # ---------- Диалоги ----------
+    dialogs_queue = []
+
+    def close_dialog(e):
+        page.dialog.open = False
+        page.update()
+        show_next_dialog()
+
+    def show_info_dialog(title, text):
+        dlg = ft.AlertDialog(title=ft.Text(title), content=ft.Text(text), actions=[ft.TextButton("Ок", on_click=close_dialog)])
+        page.dialog = dlg
+        dlg.open = True
+        page.update()
+
+    if offline_gain > 1:
+        dialogs_queue.append(
+            ft.AlertDialog(
+                title=ft.Text("Пока тебя не было"),
+                content=ft.Text(f"Ферма накопила: +{int(offline_gain)} 💰"),
+                actions=[ft.TextButton("Ок", on_click=close_dialog)],
+            )
+        )
+
+    if daily_result:
+        bonus, streak, gave_booster = daily_result
+        text = f"День подряд: {streak}\nПолучено: +{bonus} 💰"
+        if gave_booster:
+            text += f"\n⚡ Бонус: бустер x{BOOSTER_MULT} на {BOOSTER_DURATION // 60} мин!"
+        dialogs_queue.append(
+            ft.AlertDialog(
+                title=ft.Text("Ежедневный бонус!"),
+                content=ft.Text(text),
+                actions=[ft.TextButton("Забрать", on_click=close_dialog)],
+            )
+        )
+
+    def show_next_dialog():
+        if dialogs_queue:
+            dlg = dialogs_queue.pop(0)
+            page.dialog = dlg
+            dlg.open = True
+            page.update()
+
+    # ---------- Сборка экрана ----------
+    header_row = ft.Row(
+        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        controls=[ft.Container(width=40), league_text, settings_btn],
+    )
+
+    page.add(
+        ft.Column(
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=6,
+            controls=[
+                ft.Container(height=10),
+                header_row,
+                league_progress,
+                league_sub_text,
+                points_text,
+                power_text,
+                passive_text,
+                booster_text,
+                ft.Stack(
+                    controls=[
+                        ft.Container(height=10),
+                        ft.Container(content=floating_text, alignment=ft.alignment.center),
+                    ]
+                ),
+                coin_button,
+                energy_text,
+                energy_bar,
+                ft.Container(height=6),
+                tab_buttons,
+                tabs_content,
+            ],
+        )
+    )
+
+    update_quest_badge()
+    page.update()
+    show_next_dialog()
+
+
+ft.app(target=main)
