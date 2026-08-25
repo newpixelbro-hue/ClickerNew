@@ -82,30 +82,32 @@ LEAGUES = [
 
 # Кейсы: у каждого свой список наград с весами (шанс = вес / сумма весов)
 CASES = [
-    {"id": "case_starter", "name": "Стартовый кейс", "emoji": "🧰", "cost": 150, "rewards": [
-        {"type": "points", "amount": 80, "weight": 50, "label": "+80 💰"},
-        {"type": "points", "amount": 250, "weight": 25, "label": "+250 💰"},
-        {"type": "energy_full", "weight": 25, "label": "Полная энергия ⚡"},
+    # Дешёвые кейсы — только очки, никакой энергии/бустеров (иначе энергия перестаёт быть ограничителем)
+    {"id": "case_starter", "name": "Стартовый кейс", "emoji": "🧰", "cost": 150, "daily_limit": 8, "rewards": [
+        {"type": "points", "amount": 60, "weight": 55, "label": "+60 💰"},
+        {"type": "points", "amount": 150, "weight": 30, "label": "+150 💰"},
+        {"type": "points", "amount": 400, "weight": 15, "label": "+400 💰"},
     ]},
-    {"id": "case_common", "name": "Обычный кейс", "emoji": "📦", "cost": 500, "rewards": [
-        {"type": "points", "amount": 300, "weight": 40, "label": "+300 💰"},
-        {"type": "points", "amount": 900, "weight": 20, "label": "+900 💰"},
-        {"type": "energy_full", "weight": 25, "label": "Полная энергия ⚡"},
-        {"type": "booster", "seconds": 120, "weight": 15, "label": "Бустер x2 на 2 мин ⚡"},
+    {"id": "case_common", "name": "Обычный кейс", "emoji": "📦", "cost": 500, "daily_limit": 5, "rewards": [
+        {"type": "points", "amount": 350, "weight": 45, "label": "+350 💰"},
+        {"type": "points", "amount": 900, "weight": 25, "label": "+900 💰"},
+        {"type": "points", "amount": 2000, "weight": 10, "label": "+2000 💰"},
+        {"type": "energy_add", "amount": 20, "weight": 20, "label": "+20 энергии ⚡"},
     ]},
-    {"id": "case_rare", "name": "Редкий кейс", "emoji": "🎁", "cost": 2500, "rewards": [
+    # Дорогие кейсы — сами по себе ограничены дневным лимитом, а не только ценой
+    {"id": "case_rare", "name": "Редкий кейс", "emoji": "🎁", "cost": 2500, "daily_limit": 3, "rewards": [
         {"type": "points", "amount": 1800, "weight": 35, "label": "+1800 💰"},
         {"type": "points", "amount": 5000, "weight": 15, "label": "+5000 💰"},
-        {"type": "energy_full", "weight": 20, "label": "Полная энергия ⚡"},
+        {"type": "energy_full", "weight": 15, "label": "Полная энергия ⚡"},
         {"type": "booster", "seconds": 300, "weight": 25, "label": "Бустер x2 на 5 мин ⚡"},
-        {"type": "prestige_points", "amount": 1, "weight": 5, "label": "+1 очко перерождения ✨"},
+        {"type": "prestige_points", "amount": 1, "weight": 10, "label": "+1 очко перерождения ✨"},
     ]},
-    {"id": "case_epic", "name": "Эпический кейс", "emoji": "💠", "cost": 10000, "rewards": [
-        {"type": "points", "amount": 7000, "weight": 35, "label": "+7000 💰"},
+    {"id": "case_epic", "name": "Эпический кейс", "emoji": "💠", "cost": 10000, "daily_limit": 1, "rewards": [
+        {"type": "points", "amount": 7000, "weight": 30, "label": "+7000 💰"},
         {"type": "points", "amount": 18000, "weight": 15, "label": "+18000 💰"},
-        {"type": "booster", "seconds": 600, "weight": 30, "label": "Бустер x2 на 10 мин ⚡"},
-        {"type": "prestige_points", "amount": 2, "weight": 15, "label": "+2 очка перерождения ✨"},
-        {"type": "prestige_points", "amount": 5, "weight": 5, "label": "+5 очков перерождения ✨🌟"},
+        {"type": "booster", "seconds": 600, "weight": 25, "label": "Бустер x2 на 10 мин ⚡"},
+        {"type": "prestige_points", "amount": 2, "weight": 20, "label": "+2 очка перерождения ✨"},
+        {"type": "prestige_points", "amount": 5, "weight": 10, "label": "+5 очков перерождения ✨🌟"},
     ]},
 ]
 
@@ -113,6 +115,7 @@ CRIT_CHANCE = 0.1
 CRIT_MULT = 5
 PRESTIGE_THRESHOLD = 20000
 PRESTIGE_BONUS_PER_POINT = 0.05  # +5% к доходу за каждое очко перерождения
+ENERGY_PER_PRESTIGE = 20  # +20 к максимуму энергии за каждое перерождение
 BOOSTER_DURATION = 300  # 5 минут
 BOOSTER_MULT = 2
 
@@ -140,6 +143,7 @@ def default_state():
         "selected_skin": "coin_classic",
         "booster_until": 0,
         "used_promocodes": [],
+        "case_opens": {},
     }
 
 
@@ -181,6 +185,11 @@ def build_game(page: ft.Page):
         page.client_storage.set(STORAGE_KEY, json.dumps(state))
 
     state.update(load_state())
+
+    # подтягиваем лимит энергии под текущее число перерождений (и для старых сохранений тоже)
+    expected_energy_max = 100 + state["prestige_count"] * ENERGY_PER_PRESTIGE
+    if state["energy_max"] < expected_energy_max:
+        state["energy_max"] = expected_energy_max
 
     def upgrade_cost(base_cost, level):
         return int(base_cost * (1.15 ** level))
@@ -443,6 +452,7 @@ def build_game(page: ft.Page):
         gained_pp = int(state["since_prestige_points"] // PRESTIGE_THRESHOLD)
         state["prestige_points"] += gained_pp
         state["prestige_count"] += 1
+        state["energy_max"] = 100 + state["prestige_count"] * ENERGY_PER_PRESTIGE
         state["since_prestige_points"] = 0
         state["since_prestige_clicks"] = 0
         state["since_prestige_upgrades"] = 0
@@ -455,7 +465,7 @@ def build_game(page: ft.Page):
         render_shop()
         render_quests()
         refresh_top()
-        show_info_dialog("Перерождение!", f"Получено очков перерождения: +{gained_pp}\nТекущий бонус: +{int(state['prestige_points'] * PRESTIGE_BONUS_PER_POINT * 100)}% к доходу\nЗадания снова открыты (стали сложнее)")
+        show_info_dialog("Перерождение!", f"Получено очков перерождения: +{gained_pp}\nТекущий бонус: +{int(state['prestige_points'] * PRESTIGE_BONUS_PER_POINT * 100)}% к доходу\nЛимит энергии: {state['energy_max']}\nЗадания снова открыты (стали сложнее)")
 
     shop_column = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO)
 
@@ -694,37 +704,71 @@ def build_game(page: ft.Page):
             add_points(reward["amount"])
         elif reward["type"] == "energy_full":
             state["energy"] = state["energy_max"]
+        elif reward["type"] == "energy_add":
+            state["energy"] = min(state["energy_max"], state["energy"] + reward["amount"])
         elif reward["type"] == "booster":
             state["booster_until"] = max(state.get("booster_until", 0), time.time()) + reward["seconds"]
         elif reward["type"] == "prestige_points":
             state["prestige_points"] += reward["amount"]
 
+    def case_opens_today(case_id):
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        rec = state["case_opens"].get(case_id)
+        if not rec or rec.get("date") != today:
+            return 0
+        return rec.get("count", 0)
+
+    def register_case_open(case_id):
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        rec = state["case_opens"].get(case_id)
+        if not rec or rec.get("date") != today:
+            state["case_opens"][case_id] = {"date": today, "count": 1}
+        else:
+            rec["count"] += 1
+
     def open_case(case):
         def handler(e):
+            opened = case_opens_today(case["id"])
+            if opened >= case["daily_limit"]:
+                show_info_dialog("Кейсы", f"Дневной лимит для «{case['name']}» исчерпан ({case['daily_limit']}/день). Заходи завтра!")
+                return
             if state["points"] < case["cost"]:
                 show_info_dialog("Кейсы", "Не хватает очков на этот кейс")
                 return
             state["points"] -= case["cost"]
+            register_case_open(case["id"])
             reward = weighted_choice(case["rewards"])
             apply_case_reward(reward)
             save_state()
             render_cases()
             refresh_top()
-            show_info_dialog(f"{case['emoji']} {case['name']}", f"Выпало: {reward['label']}")
+            show_case_reward_dialog(case, reward)
         return handler
 
     def render_cases():
         cases_column.controls.clear()
         cases_column.controls.append(ft.Text("Кейсы", size=16, weight=ft.FontWeight.BOLD, color="white"))
         for c in CASES:
+            opened = case_opens_today(c["id"])
+            left = c["daily_limit"] - opened
+            btn_disabled = left <= 0
             cases_column.controls.append(
                 ft.Container(
                     padding=10, border_radius=10, bgcolor="#1e1e2a",
                     content=ft.Row(
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         controls=[
-                            ft.Row(controls=[ft.Text(c["emoji"], size=26), ft.Text(c["name"], size=14, color="white")]),
-                            ft.ElevatedButton(f"{c['cost']} 💰", on_click=open_case(c), bgcolor="#4fc3f7", color="#12121a"),
+                            ft.Column(spacing=2, controls=[
+                                ft.Row(controls=[ft.Text(c["emoji"], size=26), ft.Text(c["name"], size=14, color="white")]),
+                                ft.Text(f"Осталось сегодня: {max(0, left)}/{c['daily_limit']}", size=11, color="#9e9e9e"),
+                            ]),
+                            ft.ElevatedButton(
+                                "Лимит" if btn_disabled else f"{c['cost']} 💰",
+                                on_click=None if btn_disabled else open_case(c),
+                                disabled=btn_disabled,
+                                bgcolor="#3a3a45" if btn_disabled else "#4fc3f7",
+                                color="#777" if btn_disabled else "#12121a",
+                            ),
                         ],
                     ),
                 )
@@ -824,6 +868,25 @@ def build_game(page: ft.Page):
 
     def show_info_dialog(title, text):
         dlg = ft.AlertDialog(title=ft.Text(title), content=ft.Text(text), actions=[ft.TextButton("Ок", on_click=close_dialog)])
+        page.dialog = dlg
+        dlg.open = True
+        page.update()
+
+    def show_case_reward_dialog(case, reward):
+        dlg = ft.AlertDialog(
+            title=ft.Text(f"{case['emoji']} {case['name']} открыт!", size=16, weight=ft.FontWeight.BOLD),
+            content=ft.Column(
+                spacing=6,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                tight=True,
+                controls=[
+                    ft.Text("Вы получили:", size=13, color="#9e9e9e"),
+                    ft.Text(reward["label"], size=24, weight=ft.FontWeight.BOLD, color="#ffd54f"),
+                ],
+            ),
+            actions=[ft.ElevatedButton("Забрать", on_click=close_dialog, bgcolor="#ffd54f", color="#12121a")],
+            actions_alignment=ft.MainAxisAlignment.CENTER,
+        )
         page.dialog = dlg
         dlg.open = True
         page.update()
