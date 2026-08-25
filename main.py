@@ -15,21 +15,23 @@ UPGRADES = [
 ]
 
 PASSIVE = [
-    {"id": "p1", "name": "Мини-ферма", "emoji": "🌾", "base_cost": 100, "income": 5},
-    {"id": "p2", "name": "Завод", "emoji": "🏗️", "base_cost": 600, "income": 30},
-    {"id": "p3", "name": "Космодобыча", "emoji": "🚀", "base_cost": 3000, "income": 150},
+    {"id": "p1", "name": "Мини-ферма", "emoji": "🌾", "base_cost": 100, "income": 30},
+    {"id": "p2", "name": "Завод", "emoji": "🏗️", "base_cost": 600, "income": 180},
+    {"id": "p3", "name": "Космодобыча", "emoji": "🚀", "base_cost": 3000, "income": 900},
 ]
 
 # Квесты сбрасываются и растут по сложности после каждого перерождения (используют "since_prestige_*" счётчики)
 QUESTS_BASE = [
-    {"id": "q1", "desc": "Сделай {t} кликов", "type": "clicks_run", "target": 50, "reward": 100},
-    {"id": "q2", "desc": "Сделай {t} кликов", "type": "clicks_run", "target": 300, "reward": 500},
-    {"id": "q3", "desc": "Сделай {t} кликов", "type": "clicks_run", "target": 800, "reward": 1200},
-    {"id": "q4", "desc": "Заработай {t} очков за этот забег", "type": "points_run", "target": 1000, "reward": 300},
-    {"id": "q5", "desc": "Заработай {t} очков за этот забег", "type": "points_run", "target": 5000, "reward": 1200},
-    {"id": "q6", "desc": "Заработай {t} очков за этот забег", "type": "points_run", "target": 15000, "reward": 3000},
-    {"id": "q7", "desc": "Купи {t} улучшений за этот забег", "type": "upgrades_run", "target": 5, "reward": 400},
-    {"id": "q8", "desc": "Купи {t} улучшений за этот забег", "type": "upgrades_run", "target": 12, "reward": 1500},
+    {"id": "q1", "desc": "Сделай {t} кликов", "type": "clicks_run", "target": 50, "reward": 100, "reward_type": "points"},
+    {"id": "q2", "desc": "Сделай {t} кликов", "type": "clicks_run", "target": 300, "reward": 500, "reward_type": "points"},
+    {"id": "q3", "desc": "Сделай {t} кликов", "type": "clicks_run", "target": 800, "reward": 1200, "reward_type": "points"},
+    {"id": "q4", "desc": "Заработай {t} очков за этот забег", "type": "points_run", "target": 1000, "reward": 300, "reward_type": "points"},
+    {"id": "q5", "desc": "Заработай {t} очков за этот забег", "type": "points_run", "target": 5000, "reward": 1200, "reward_type": "points"},
+    {"id": "q6", "desc": "Заработай {t} очков за этот забег", "type": "points_run", "target": 15000, "reward": 3000, "reward_type": "points"},
+    {"id": "q7", "desc": "Купи {t} улучшений за этот забег", "type": "upgrades_run", "target": 5, "reward": 400, "reward_type": "points"},
+    {"id": "q8", "desc": "Купи {t} улучшений за этот забег", "type": "upgrades_run", "target": 12, "reward": 1500, "reward_type": "points"},
+    {"id": "q9", "desc": "Сделай {t} кликов", "type": "clicks_run", "target": 150, "reward": 100, "reward_type": "energy"},
+    {"id": "q10", "desc": "Заработай {t} очков за этот забег", "type": "points_run", "target": 3000, "reward": 100, "reward_type": "energy"},
 ]
 
 
@@ -39,15 +41,23 @@ def build_quests(prestige_count):
     quests = []
     for q in QUESTS_BASE:
         target = max(1, int(round(q["target"] * diff_mult)))
-        reward = max(1, int(round(q["reward"] * reward_mult)))
+        if q["reward_type"] == "energy":
+            reward = q["reward"]  # энергия не растёт с престижем, всегда полный бак
+        else:
+            reward = max(1, int(round(q["reward"] * reward_mult)))
         quests.append({
             "id": q["id"],
             "desc": q["desc"].format(t=target),
             "type": q["type"],
             "target": target,
             "reward": reward,
+            "reward_type": q["reward_type"],
         })
     return quests
+
+PROMOCODES = {
+    "ADMIN": {"points": 3000, "energy_full": True},
+}
 
 ACHIEVEMENTS = [
     {"id": "a1", "desc": "🏆 1000 кликов за всю игру", "type": "clicks", "target": 1000, "reward": 1000},
@@ -56,24 +66,24 @@ ACHIEVEMENTS = [
 ]
 
 SKINS = [
-    {"id": "coin_classic", "emoji": "💰", "name": "Классика", "min_lifetime": 0},
-    {"id": "coin_diamond", "emoji": "💎", "name": "Алмаз", "min_lifetime": 15000},
-    {"id": "coin_fire", "emoji": "🔥", "name": "Огонь", "min_lifetime": 75000},
-    {"id": "coin_star", "emoji": "🌟", "name": "Звезда", "min_lifetime": 300000},
+    {"id": "coin_classic", "emoji": "💰", "name": "Классика", "min_lifetime": 0, "bonus_type": None, "bonus_value": 0, "bonus_desc": "Без бонуса"},
+    {"id": "coin_diamond", "emoji": "💎", "name": "Алмаз", "min_lifetime": 15000, "bonus_type": "passive", "bonus_value": 0.05, "bonus_desc": "+5% к пассивному доходу"},
+    {"id": "coin_fire", "emoji": "🔥", "name": "Огонь", "min_lifetime": 75000, "bonus_type": "crit_chance", "bonus_value": 0.05, "bonus_desc": "+5% к шансу крита"},
+    {"id": "coin_star", "emoji": "🌟", "name": "Звезда", "min_lifetime": 300000, "bonus_type": "click_power", "bonus_value": 0.10, "bonus_desc": "+10% к силе клика"},
 ]
 
 LEAGUES = [
-    {"name": "Бронза", "min": 0},
-    {"name": "Серебро", "min": 2000},
-    {"name": "Золото", "min": 15000},
-    {"name": "Платина", "min": 75000},
-    {"name": "Алмаз", "min": 300000},
+    {"name": "Бронза", "min": 0, "offline_mult": 0.5},
+    {"name": "Серебро", "min": 2000, "offline_mult": 0.65},
+    {"name": "Золото", "min": 15000, "offline_mult": 0.85},
+    {"name": "Платина", "min": 75000, "offline_mult": 1.1},
+    {"name": "Алмаз", "min": 300000, "offline_mult": 1.5},
 ]
 
 CRIT_CHANCE = 0.1
 CRIT_MULT = 5
 PRESTIGE_THRESHOLD = 20000
-PRESTIGE_BONUS_PER_POINT = 0.02  # +2% к доходу за каждое очко перерождения
+PRESTIGE_BONUS_PER_POINT = 0.05  # +5% к доходу за каждое очко перерождения
 BOOSTER_DURATION = 300  # 5 минут
 BOOSTER_MULT = 2
 
@@ -100,6 +110,7 @@ def default_state():
         "claimed_achievements": [],
         "selected_skin": "coin_classic",
         "booster_until": 0,
+        "used_promocodes": [],
     }
 
 
@@ -158,15 +169,24 @@ def build_game(page: ft.Page):
             power += lvl * u["power"]
         return power
 
+    def selected_skin_obj():
+        return next((s for s in SKINS if s["id"] == state["selected_skin"]), SKINS[0])
+
+    def skin_bonus(bonus_type):
+        skin = selected_skin_obj()
+        if skin.get("bonus_type") == bonus_type:
+            return skin.get("bonus_value", 0)
+        return 0
+
     def total_click_power():
-        return base_click_power() * active_multiplier()
+        return base_click_power() * active_multiplier() * (1 + skin_bonus("click_power"))
 
     def total_passive_income():
         income = 0
         for p in PASSIVE:
             lvl = state["owned_passive"].get(p["id"], 0)
             income += lvl * p["income"]
-        return income * active_multiplier()
+        return income * active_multiplier() * (1 + skin_bonus("passive"))
 
     def league_index():
         idx = 0
@@ -197,7 +217,8 @@ def build_game(page: ft.Page):
         now = time.time()
         elapsed = max(0, now - state.get("last_tick", now))
         elapsed_capped = min(elapsed, 8 * 3600)
-        income_per_sec = total_passive_income() / 3600
+        offline_mult = current_league().get("offline_mult", 0.5)
+        income_per_sec = (total_passive_income() / 3600) * offline_mult
         gained = income_per_sec * elapsed_capped
         if gained > 1:
             add_points(gained)
@@ -242,6 +263,15 @@ def build_game(page: ft.Page):
     energy_text = ft.Text(f"{int(state['energy'])}/{state['energy_max']}", size=14, color="#80cbc4")
     energy_bar = ft.ProgressBar(value=state["energy"] / state["energy_max"], color="#80cbc4", bgcolor="#2a2a35", width=280)
     floating_text = ft.Text("", size=20, weight=ft.FontWeight.BOLD, color="#ffd54f", opacity=0)
+    combo_text = ft.Text("", size=12, color="#ff8a65")
+
+    COMBO_WINDOW = 1.2   # секунд между кликами, чтобы комбо не сбрасывалось
+    COMBO_STEP = 0.02    # +2% за каждый клик в комбо
+    COMBO_CAP = 25       # максимум +50%
+    combo_state = {"count": 0, "last_time": 0}
+
+    def combo_multiplier():
+        return 1 + min(combo_state["count"], COMBO_CAP) * COMBO_STEP
 
     def current_skin_emoji():
         skin = next((s for s in SKINS if s["id"] == state["selected_skin"]), SKINS[0])
@@ -297,10 +327,23 @@ def build_game(page: ft.Page):
         state["total_clicks"] += 1
         add_run_click()
 
+        now = time.time()
+        if now - combo_state["last_time"] < COMBO_WINDOW:
+            combo_state["count"] += 1
+        else:
+            combo_state["count"] = 1
+        combo_state["last_time"] = now
+
         power = total_click_power()
-        is_crit = random.random() < CRIT_CHANCE
+        is_crit = random.random() < (CRIT_CHANCE + skin_bonus("crit_chance"))
         gained = power * CRIT_MULT if is_crit else power
+        gained *= combo_multiplier()
         add_points(gained)
+
+        if combo_state["count"] > 1:
+            combo_text.value = f"🔥 Комбо x{min(combo_state['count'], COMBO_CAP)} (+{int((combo_multiplier() - 1) * 100)}%)"
+        else:
+            combo_text.value = ""
 
         coin_button.bgcolor = "#33261e" if is_crit else "#262633"
         page.update()
@@ -381,6 +424,31 @@ def build_game(page: ft.Page):
 
     shop_column = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO)
 
+    promo_field = ft.TextField(label="Промокод", width=180, color="white", border_color="#3a3a45")
+
+    def redeem_promo(e):
+        code = (promo_field.value or "").strip().upper()
+        if not code:
+            return
+        if code in state["used_promocodes"]:
+            show_info_dialog("Промокод", "Этот промокод уже использован")
+            return
+        if code not in PROMOCODES:
+            show_info_dialog("Промокод", "Неверный промокод")
+            return
+        reward = PROMOCODES[code]
+        if "points" in reward:
+            add_points(reward["points"])
+        if reward.get("energy_full"):
+            state["energy"] = state["energy_max"]
+        state["used_promocodes"].append(code)
+        promo_field.value = ""
+        save_state()
+        refresh_top()
+        show_info_dialog("Промокод активирован!", f"Код {code} успешно применён")
+
+    promo_button = ft.ElevatedButton("Активировать", on_click=redeem_promo, bgcolor="#4fc3f7", color="#12121a")
+
     def shop_row(name, emoji, level, cost, on_buy, subtitle):
         return ft.Container(
             padding=10,
@@ -400,6 +468,13 @@ def build_game(page: ft.Page):
 
     def render_shop():
         shop_column.controls.clear()
+
+        shop_column.controls.append(
+            ft.Container(
+                padding=10, border_radius=10, bgcolor="#1e1e2a",
+                content=ft.Row(controls=[promo_field, promo_button]),
+            )
+        )
 
         prestige_ready = state["since_prestige_points"] >= PRESTIGE_THRESHOLD
         shop_column.controls.append(
@@ -458,7 +533,10 @@ def build_game(page: ft.Page):
             if entry["id"] in state[claimed_list_key]:
                 return
             if progress_value(entry) >= entry["target"]:
-                add_points(entry["reward"])
+                if entry.get("reward_type") == "energy":
+                    state["energy"] = state["energy_max"]
+                else:
+                    add_points(entry["reward"])
                 state[claimed_list_key].append(entry["id"])
                 save_state()
                 on_done()
@@ -482,7 +560,10 @@ def build_game(page: ft.Page):
                 controls=[
                     ft.Column(spacing=2, controls=[
                         ft.Text(entry["desc"], size=13, color="white"),
-                        ft.Text(f"Награда: {entry['reward']} 💰", size=11, color="#ffd54f"),
+                        ft.Text(
+                            "Награда: полная энергия ⚡" if entry.get("reward_type") == "energy" else f"Награда: {entry['reward']} 💰",
+                            size=11, color="#ffd54f"
+                        ),
                     ]),
                     status,
                 ],
@@ -545,7 +626,10 @@ def build_game(page: ft.Page):
                     content=ft.Row(
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         controls=[
-                            ft.Row(controls=[ft.Text(s["emoji"], size=28), ft.Text(s["name"], size=14, color="white")]),
+                            ft.Column(spacing=2, controls=[
+                                ft.Row(controls=[ft.Text(s["emoji"], size=28), ft.Text(s["name"], size=14, color="white")]),
+                                ft.Text(s.get("bonus_desc", ""), size=11, color="#9e9e9e"),
+                            ]),
                             btn,
                         ],
                     ),
@@ -622,6 +706,9 @@ def build_game(page: ft.Page):
             state["energy"] = min(state["energy_max"], state["energy"] + elapsed / 3)
             add_points((total_passive_income() / 3600) * elapsed)
             state["last_tick"] = now
+            if combo_state["count"] > 0 and now - combo_state["last_time"] > COMBO_WINDOW:
+                combo_state["count"] = 0
+                combo_text.value = ""
             try:
                 refresh_top()
             except Exception:
@@ -647,7 +734,7 @@ def build_game(page: ft.Page):
         dialogs_queue.append(
             ft.AlertDialog(
                 title=ft.Text("Пока тебя не было"),
-                content=ft.Text(f"Ферма накопила: +{int(offline_gain)} 💰"),
+                content=ft.Text(f"Ферма накопила: +{int(offline_gain)} 💰\n(офлайн-множитель твоей лиги: x{current_league().get('offline_mult', 0.5)})"),
                 actions=[ft.TextButton("Ок", on_click=close_dialog)],
             )
         )
@@ -691,6 +778,7 @@ def build_game(page: ft.Page):
                 power_text,
                 passive_text,
                 booster_text,
+                combo_text,
                 ft.Stack(
                     controls=[
                         ft.Container(height=10),
