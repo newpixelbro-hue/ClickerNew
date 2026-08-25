@@ -611,7 +611,7 @@ def build_game(page: ft.Page):
         page.dialog.open = True
         page.update()
 
-    settings_btn = ft.IconButton(icon=ft.icons.SETTINGS, icon_color="#666", on_click=confirm_reset)
+    settings_btn = ft.IconButton(icon=ft.Icons.SETTINGS, icon_color="#666", on_click=confirm_reset)
 
     # ---------- Автотик ----------
     def tick_loop():
