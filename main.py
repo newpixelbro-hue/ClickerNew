@@ -728,21 +728,24 @@ def build_game(page: ft.Page):
 
     def open_case(case):
         def handler(e):
-            opened = case_opens_today(case["id"])
-            if opened >= case["daily_limit"]:
-                show_info_dialog("Кейсы", f"Дневной лимит для «{case['name']}» исчерпан ({case['daily_limit']}/день). Заходи завтра!")
-                return
-            if state["points"] < case["cost"]:
-                show_info_dialog("Кейсы", "Не хватает очков на этот кейс")
-                return
-            state["points"] -= case["cost"]
-            register_case_open(case["id"])
-            reward = weighted_choice(case["rewards"])
-            apply_case_reward(reward)
-            save_state()
-            render_cases()
-            refresh_top()
-            show_case_reward_dialog(case, reward)
+            try:
+                opened = case_opens_today(case["id"])
+                if opened >= case["daily_limit"]:
+                    show_info_dialog("Кейсы", f"Дневной лимит для «{case['name']}» исчерпан ({case['daily_limit']}/день). Заходи завтра!")
+                    return
+                if state["points"] < case["cost"]:
+                    show_info_dialog("Кейсы", "Не хватает очков на этот кейс")
+                    return
+                state["points"] -= case["cost"]
+                register_case_open(case["id"])
+                reward = weighted_choice(case["rewards"])
+                apply_case_reward(reward)
+                save_state()
+                render_cases()
+                refresh_top()
+                show_case_reward_dialog(case, reward)
+            except Exception as ex:
+                show_info_dialog("Ошибка открытия кейса", str(ex))
         return handler
 
     def render_cases():
@@ -752,25 +755,30 @@ def build_game(page: ft.Page):
             opened = case_opens_today(c["id"])
             left = c["daily_limit"] - opened
             btn_disabled = left <= 0
+            total_w = sum(r["weight"] for r in c["rewards"])
+            possible = ", ".join(f"{r['label']} ({round(r['weight'] / total_w * 100)}%)" for r in c["rewards"])
             cases_column.controls.append(
                 ft.Container(
                     padding=10, border_radius=10, bgcolor="#1e1e2a",
-                    content=ft.Row(
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        controls=[
-                            ft.Column(spacing=2, controls=[
-                                ft.Row(controls=[ft.Text(c["emoji"], size=26), ft.Text(c["name"], size=14, color="white")]),
-                                ft.Text(f"Осталось сегодня: {max(0, left)}/{c['daily_limit']}", size=11, color="#9e9e9e"),
-                            ]),
-                            ft.ElevatedButton(
-                                "Лимит" if btn_disabled else f"{c['cost']} 💰",
-                                on_click=None if btn_disabled else open_case(c),
-                                disabled=btn_disabled,
-                                bgcolor="#3a3a45" if btn_disabled else "#4fc3f7",
-                                color="#777" if btn_disabled else "#12121a",
-                            ),
-                        ],
-                    ),
+                    content=ft.Column(spacing=6, controls=[
+                        ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            controls=[
+                                ft.Column(spacing=2, controls=[
+                                    ft.Row(controls=[ft.Text(c["emoji"], size=26), ft.Text(c["name"], size=14, color="white")]),
+                                    ft.Text(f"Осталось сегодня: {max(0, left)}/{c['daily_limit']}", size=11, color="#9e9e9e"),
+                                ]),
+                                ft.ElevatedButton(
+                                    "Лимит" if btn_disabled else f"{c['cost']} 💰",
+                                    on_click=None if btn_disabled else open_case(c),
+                                    disabled=btn_disabled,
+                                    bgcolor="#3a3a45" if btn_disabled else "#4fc3f7",
+                                    color="#777" if btn_disabled else "#12121a",
+                                ),
+                            ],
+                        ),
+                        ft.Text(f"Возможно: {possible}", size=10, color="#7a7a85"),
+                    ]),
                 )
             )
         page.update()
@@ -878,14 +886,12 @@ def build_game(page: ft.Page):
             content=ft.Column(
                 spacing=6,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                tight=True,
                 controls=[
                     ft.Text("Вы получили:", size=13, color="#9e9e9e"),
                     ft.Text(reward["label"], size=24, weight=ft.FontWeight.BOLD, color="#ffd54f"),
                 ],
             ),
             actions=[ft.ElevatedButton("Забрать", on_click=close_dialog, bgcolor="#ffd54f", color="#12121a")],
-            actions_alignment=ft.MainAxisAlignment.CENTER,
         )
         page.dialog = dlg
         dlg.open = True
