@@ -204,23 +204,24 @@ def save_accounts(page, accounts):
 def show_auth_screen(page: ft.Page):
     accounts = load_accounts(page)
 
-    # если стоит "запомнить меня" из прошлого раза — сразу в игру, без формы
+    # "запомнить меня" из прошлого раза — только подставляем данные, форму всё равно показываем
+    remembered_username = ""
+    remembered_password = ""
     session_raw = page.client_storage.get(SESSION_KEY)
     if session_raw:
         try:
             session = json.loads(session_raw)
             uname = session.get("username")
             if uname and session.get("remember") and uname in accounts:
-                page.controls.clear()
-                safe_run(page, lambda: build_game(page, uname))
-                return
+                remembered_username = accounts[uname].get("display", uname)
+                remembered_password = session.get("password", "")
         except Exception:
             pass
 
     mode = {"value": "login"}
 
-    username_field = ft.TextField(label="Ник", width=260, color="white", border_color="#3a3a45")
-    password_field = ft.TextField(label="Пароль", width=260, password=True, can_reveal_password=True, color="white", border_color="#3a3a45")
+    username_field = ft.TextField(label="Ник", width=260, value=remembered_username, color="white", border_color="#3a3a45")
+    password_field = ft.TextField(label="Пароль", width=260, value=remembered_password, password=True, can_reveal_password=True, color="white", border_color="#3a3a45")
     admin_code_field = ft.TextField(label="Код администратора", width=260, password=True, can_reveal_password=True, visible=False, color="white", border_color="#3a3a45")
     remember_checkbox = ft.Checkbox(label="Запомнить меня", value=True)
     error_text = ft.Text("", color="#ff5252", size=12)
@@ -281,7 +282,10 @@ def show_auth_screen(page: ft.Page):
                 page.update()
                 return
 
-        page.client_storage.set(SESSION_KEY, json.dumps({"username": uname, "remember": remember_checkbox.value}))
+        session_data = {"username": uname, "remember": remember_checkbox.value}
+        if remember_checkbox.value:
+            session_data["password"] = pwd
+        page.client_storage.set(SESSION_KEY, json.dumps(session_data))
         page.controls.clear()
         safe_run(page, lambda: build_game(page, uname))
 
@@ -1123,4 +1127,3 @@ def build_game(page: ft.Page, username="guest"):
 
 
 ft.app(target=main)
-  
