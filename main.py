@@ -5,7 +5,12 @@ import random
 import threading
 from datetime import datetime, timezone
 
-STORAGE_KEY = "save_v3"
+STORAGE_KEY = "save_v3"       # старый общий ключ (для миграции первого аккаунта)
+ACCOUNTS_KEY = "accounts_v1"  # список всех локальных аккаунтов
+SESSION_KEY = "session_v1"    # кто сейчас залогинен / запомнить ли
+
+ADMIN_USERNAME = "admin"
+ADMIN_SECRET_CODE = "ROYAL2026"  # поменяй перед сборкой на свой личный код, никому не говори его
 
 UPGRADES = [
     {"id": "u1", "name": "Крепкая рука", "emoji": "💪", "base_cost": 25, "power": 1},
@@ -153,7 +158,7 @@ def main(page: ft.Page):
     page.padding = 0
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     try:
-        build_game(page)
+        show_auth_screen(page)
     except Exception as ex:
         import traceback
         page.controls.clear()
@@ -166,11 +171,151 @@ def main(page: ft.Page):
         page.update()
 
 
-def build_game(page: ft.Page):
+def safe_run(page, fn):
+    """Обёртка: если внутри fn что-то упадёт — покажем текст ошибки вместо тишины/серого экрана."""
+    try:
+        fn()
+    except Exception as ex:
+        import traceback
+        page.controls.clear()
+        page.scroll = ft.ScrollMode.AUTO
+        page.add(
+            ft.Text("Ошибка:", size=18, weight=ft.FontWeight.BOLD, color="#ff5252"),
+            ft.Text(str(ex), size=14, color="white", selectable=True),
+            ft.Text(traceback.format_exc(), size=11, color="#9e9e9e", selectable=True),
+        )
+        page.update()
+
+
+def load_accounts(page):
+    raw = page.client_storage.get(ACCOUNTS_KEY)
+    if raw:
+        try:
+            return json.loads(raw)
+        except Exception:
+            return {}
+    return {}
+
+
+def save_accounts(page, accounts):
+    page.client_storage.set(ACCOUNTS_KEY, json.dumps(accounts))
+
+
+def show_auth_screen(page: ft.Page):
+    accounts = load_accounts(page)
+
+    # если стоит "запомнить меня" из прошлого раза — сразу в игру, без формы
+    session_raw = page.client_storage.get(SESSION_KEY)
+    if session_raw:
+        try:
+            session = json.loads(session_raw)
+            uname = session.get("username")
+            if uname and session.get("remember") and uname in accounts:
+                page.controls.clear()
+                safe_run(page, lambda: build_game(page, uname))
+                return
+        except Exception:
+            pass
+
+    mode = {"value": "login"}
+
+    username_field = ft.TextField(label="Ник", width=260, color="white", border_color="#3a3a45")
+    password_field = ft.TextField(label="Пароль", width=260, password=True, can_reveal_password=True, color="white", border_color="#3a3a45")
+    admin_code_field = ft.TextField(label="Код администратора", width=260, password=True, can_reveal_password=True, visible=False, color="white", border_color="#3a3a45")
+    remember_checkbox = ft.Checkbox(label="Запомнить меня", value=True)
+    error_text = ft.Text("", color="#ff5252", size=12)
+    title_text = ft.Text("Вход", size=22, weight=ft.FontWeight.BOLD, color="white")
+    submit_btn = ft.ElevatedButton("Войти", bgcolor="#ffd54f", color="#12121a")
+    switch_btn = ft.TextButton("Нет аккаунта? Зарегистрироваться")
+
+    def update_admin_field(e=None):
+        show_it = mode["value"] == "register" and (username_field.value or "").strip().lower() == ADMIN_USERNAME
+        admin_code_field.visible = show_it
+        page.update()
+
+    username_field.on_change = update_admin_field
+
+    def switch_mode(e):
+        mode["value"] = "register" if mode["value"] == "login" else "login"
+        title_text.value = "Регистрация" if mode["value"] == "register" else "Вход"
+        submit_btn.text = "Зарегистрироваться" if mode["value"] == "register" else "Войти"
+        switch_btn.text = "Уже есть аккаунт? Войти" if mode["value"] == "register" else "Нет аккаунта? Зарегистрироваться"
+        error_text.value = ""
+        update_admin_field()
+
+    switch_btn.on_click = switch_mode
+
+    def do_submit(e):
+        uname_raw = (username_field.value or "").strip()
+        uname = uname_raw.lower()
+        pwd = password_field.value or ""
+
+        if not uname or not pwd:
+            error_text.value = "Заполни ник и пароль"
+            page.update()
+            return
+
+        if mode["value"] == "register":
+            if uname in accounts:
+                error_text.value = "Такой ник уже занят"
+                page.update()
+                return
+            if uname == ADMIN_USERNAME and (admin_code_field.value or "") != ADMIN_SECRET_CODE:
+                error_text.value = "Неверный код администратора"
+                page.update()
+                return
+
+            is_first_account_ever = len(accounts) == 0
+            accounts[uname] = {"password": pwd, "display": uname_raw}
+            save_accounts(page, accounts)
+
+            # первый когда-либо созданный аккаунт наследует старое (доаккаунтное) сохранение, если оно есть
+            if is_first_account_ever:
+                old_save = page.client_storage.get(STORAGE_KEY)
+                if old_save:
+                    page.client_storage.set(f"{STORAGE_KEY}_{uname}", old_save)
+        else:
+            acc = accounts.get(uname)
+            if not acc or acc.get("password") != pwd:
+                error_text.value = "Неверный ник или пароль"
+                page.update()
+                return
+
+        page.client_storage.set(SESSION_KEY, json.dumps({"username": uname, "remember": remember_checkbox.value}))
+        page.controls.clear()
+        safe_run(page, lambda: build_game(page, uname))
+
+    submit_btn.on_click = do_submit
+
+    page.controls.clear()
+    page.scroll = None
+    page.add(
+        ft.Column(
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=14,
+            controls=[
+                ft.Container(height=60),
+                ft.Text("💰", size=60),
+                title_text,
+                username_field,
+                password_field,
+                admin_code_field,
+                remember_checkbox,
+                error_text,
+                submit_btn,
+                switch_btn,
+            ],
+        )
+    )
+    page.update()
+
+
+def build_game(page: ft.Page, username="guest"):
     state = {}
+    user_storage_key = f"{STORAGE_KEY}_{username}"
 
     def load_state():
-        raw = page.client_storage.get(STORAGE_KEY)
+        raw = page.client_storage.get(user_storage_key)
         if raw:
             try:
                 loaded = json.loads(raw)
@@ -182,7 +327,7 @@ def build_game(page: ft.Page):
         return default_state()
 
     def save_state():
-        page.client_storage.set(STORAGE_KEY, json.dumps(state))
+        page.client_storage.set(user_storage_key, json.dumps(state))
 
     state.update(load_state())
 
@@ -847,6 +992,14 @@ def build_game(page: ft.Page):
 
     settings_btn = ft.IconButton(icon=ft.Icons.SETTINGS, icon_color="#666", on_click=confirm_reset)
 
+    def do_logout(e):
+        page.client_storage.set(SESSION_KEY, json.dumps({"username": None, "remember": False}))
+        page.controls.clear()
+        page.scroll = None
+        safe_run(page, lambda: show_auth_screen(page))
+
+    logout_btn = ft.IconButton(icon=ft.Icons.LOGOUT, icon_color="#666", on_click=do_logout)
+
     # ---------- Автотик ----------
     def tick_loop():
         while True:
@@ -927,9 +1080,11 @@ def build_game(page: ft.Page):
             page.update()
 
     # ---------- Сборка экрана ----------
+    display_name = username.upper() if username == ADMIN_USERNAME else username
+    user_label = ft.Text(f"👑 {display_name}" if username == ADMIN_USERNAME else display_name, size=12, color="#ce93d8" if username == ADMIN_USERNAME else "#9e9e9e")
     header_row = ft.Row(
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-        controls=[ft.Container(width=40), league_text, settings_btn],
+        controls=[logout_btn, ft.Column(spacing=0, horizontal_alignment=ft.CrossAxisAlignment.CENTER, controls=[league_text, user_label]), settings_btn],
     )
 
     page.add(
@@ -968,3 +1123,4 @@ def build_game(page: ft.Page):
 
 
 ft.app(target=main)
+  
